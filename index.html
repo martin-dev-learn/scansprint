@@ -238,6 +238,12 @@
   }
   #sink:focus{outline:none}
 
+  #dbg{
+    margin-top:8px;font-family:var(--mono);font-size:11px;
+    color:var(--ink-soft);
+  }
+  #dbg #dbg-v{color:var(--hi)}
+
   @media (prefers-reduced-motion:reduce){
     *{animation:none!important;transition:none!important}
   }
@@ -313,6 +319,7 @@
   <footer>
     Scanner als Keyboard-Wedge mit <code>CR</code>/Enter-Suffix konfigurieren.<br>
     Test ohne Scanner: Code tippen und <code>Enter</code> drücken.
+    <div id="dbg">Build v2 · Empfangen: <span id="dbg-v">– (noch nichts)</span></div>
   </footer>
 
 <script>
@@ -346,7 +353,8 @@
     record:  document.getElementById("record"),
     restart: document.getElementById("restart"),
     flash:   document.getElementById("flash"),
-    sink:    document.getElementById("sink")
+    sink:    document.getElementById("sink"),
+    dbgV:    document.getElementById("dbg-v")
   };
 
   /* ---------- helpers ---------- */
@@ -523,6 +531,7 @@
   }
 
   function handleCode(code){
+    if(el.dbgV) el.dbgV.textContent = code + " (" + code.length + " Zeichen)";
     if(STATE === "start")      startGame(code);
     else if(STATE === "play")  registerScan(code);
     else if(STATE === "done")  startGame(code);   // scanning restarts
@@ -545,6 +554,34 @@
   document.addEventListener("touchend", function(){ setTimeout(focusSink, 0); }, {passive:true});
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) focusSink(); });
   window.addEventListener("pageshow", focusSink);
+
+  /* fallback: document-level capture, used only when the sink is NOT
+     focused (e.g. the very first scan right after page load). Decodes
+     characters robustly even if the wedge reports e.key as undefined. */
+  var docBuf = "";
+  var docIdle = null;
+  function docSubmit(){
+    if(docIdle){ clearTimeout(docIdle); docIdle = null; }
+    var code = docBuf.replace(/[\r\n\t]+/g, "").trim();
+    docBuf = "";
+    if(code) handleCode(code);
+  }
+  document.addEventListener("keydown", function(e){
+    if(document.activeElement === el.sink) return;   // sink path handles it
+    if(e.ctrlKey || e.metaKey || e.altKey) return;
+    if(e.key === "Enter" || e.key === "Tab"){
+      e.preventDefault();
+      docSubmit();
+      return;
+    }
+    var ch = (e.key && e.key.length === 1) ? e.key
+           : (e.keyCode >= 32 && e.keyCode <= 126 ? String.fromCharCode(e.keyCode) : "");
+    if(ch){
+      docBuf += ch;
+      if(docIdle) clearTimeout(docIdle);
+      docIdle = setTimeout(docSubmit, IDLE_MS);
+    }
+  });
 
   /* ---------- start-screen controls ---------- */
   Array.prototype.forEach.call(el.seg.querySelectorAll("button"), function(b){
