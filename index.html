@@ -10,8 +10,8 @@
     --bg:#15171c;          /* industrial charcoal */
     --panel:#1d2027;
     --panel-edge:#2b2f39;
-    --hi:#ffd400;          /* safety yellow */
-    --hi-dim:#b69700;
+    --hi:#a60a3d;          /* Barcotec brand */
+    --hi-dim:#7c072e;
     --laser:#ff3b30;       /* scan laser red */
     --ok:#37d67a;
     --ink:#f3f4f6;
@@ -99,7 +99,7 @@
   }
   .seg button:hover{border-color:var(--hi-dim)}
   .seg button[aria-pressed="true"]{
-    background:var(--hi);color:#1a1a1a;border-color:var(--hi);
+    background:var(--hi);color:#fff;border-color:var(--hi);
   }
   .seg button .u{display:block;font-size:10px;letter-spacing:.12em;font-weight:600;opacity:.7;margin-top:2px}
 
@@ -147,7 +147,7 @@
     font-size:clamp(56px,20vw,118px);line-height:1;
     letter-spacing:-.02em;font-variant-numeric:tabular-nums;
     text-align:center;
-    text-shadow:0 0 26px rgba(255,212,0,.18);
+    text-shadow:0 0 26px rgba(166,10,61,.35);
   }
   .timer .ms{color:var(--hi);font-size:.5em}
   .timer.locked{animation:lock .4s ease both}
@@ -207,7 +207,7 @@
   .verdict{font-family:var(--mono);font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-soft);text-align:center}
   .record{
     display:inline-block;margin:0 auto 6px;
-    background:var(--hi);color:#1a1a1a;font-weight:800;
+    background:var(--hi);color:#fff;font-weight:800;
     font-family:var(--mono);font-size:12px;letter-spacing:.14em;
     padding:5px 12px;border-radius:999px;text-transform:uppercase;
   }
@@ -220,7 +220,7 @@
   }
   .btn{
     display:block;width:100%;margin-top:14px;min-height:56px;
-    background:var(--hi);color:#1a1a1a;
+    background:var(--hi);color:#fff;
     border:none;border-radius:14px;cursor:pointer;
     font-family:var(--mono);font-weight:800;font-size:16px;
     letter-spacing:.1em;text-transform:uppercase;
@@ -333,7 +333,7 @@
   <footer>
     Scanner als Keyboard-Wedge mit <code>CR</code>/Enter-Suffix konfigurieren.<br>
     Test ohne Scanner: Code tippen und <code>Enter</code> drücken.
-    <div id="dbg">Build v4 · Empfangen: <span id="dbg-v">– (noch nichts)</span></div>
+    <div id="dbg">Build v5 · Empfangen: <span id="dbg-v">– (noch nichts)</span></div>
   </footer>
 
 <script>
@@ -476,7 +476,7 @@
     if(!code) return;
 
     if(!allowDup && scanned.has(code)){
-      flash("dupe"); beep(220,0.12); vibrate([40,30,40]);
+      flash("dupe"); beep(330,0.08); vibrate(30);
       el.dupemsg.textContent = "Bereits gescannt – anderen Code nehmen";
       el.lastcode.innerHTML = "Doppelt: <b>"+escapeHtml(code)+"</b>";
       return;
@@ -500,7 +500,7 @@
     elapsed = performance.now() - startTime;
     beep(1320,0.14);
     setTimeout(function(){ beep(1760,0.18); }, 120);
-    vibrate([60,40,120]);
+    vibrate(60);
 
     el.doneN.textContent = target;
     el.doneTimer.innerHTML = fmt(elapsed);
@@ -599,7 +599,7 @@
   });
 
   /* keep the anchor field focused */
-  el.sink.addEventListener("blur", function(){ setTimeout(focusSink, 50); });
+  el.sink.addEventListener("blur", function(){ focusSink(); setTimeout(focusSink, 50); });
   document.addEventListener("click", function(){ setTimeout(focusSink, 0); });
   document.addEventListener("touchend", function(){ setTimeout(focusSink, 0); }, {passive:true});
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) focusSink(); });
