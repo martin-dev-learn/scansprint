@@ -172,13 +172,28 @@
   .slot.filled{border-color:var(--hi);background:var(--hi)}
   .slot.filled .bars{opacity:1}
 
-  .lastcode{
-    font-family:var(--mono);text-align:center;
-    color:var(--ink-soft);font-size:13px;letter-spacing:.06em;
-    min-height:20px;
+  .codelist{
+    list-style:none;margin:14px 0 0;padding:0;
+    display:flex;flex-direction:column;gap:6px;
+  }
+  .codelist li{
+    display:flex;align-items:center;gap:10px;
+    font-family:var(--mono);font-size:14px;
+    background:var(--panel);border:1px solid var(--panel-edge);
+    border-radius:8px;padding:8px 12px;
+    animation:codein .2s ease both;
+  }
+  .codelist li .num{
+    flex:0 0 auto;width:22px;height:22px;border-radius:5px;
+    background:var(--hi);color:#fff;font-size:12px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .codelist li .code{
+    flex:1;color:var(--ink);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
-  .lastcode b{color:var(--ink)}
+  @keyframes codein{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+  #done-codes{max-height:34vh;overflow:auto}
 
   /* sweeping laser line during play */
   .laserwrap{position:absolute;inset:0;pointer-events:none;overflow:hidden;border-radius:18px}
@@ -261,7 +276,7 @@
 </style>
 </head>
 <body>
-  <input id="sink" type="text" inputmode="none" autocomplete="off"
+  <input id="sink" type="text" autocomplete="off"
          autocorrect="off" autocapitalize="off" spellcheck="false"
          aria-hidden="true" tabindex="-1">
   <div class="hazard"></div>
@@ -312,8 +327,8 @@
         </div>
         <div class="timer" id="timer">0.<span class="ms">00</span></div>
         <div class="slots" id="slots"></div>
-        <div class="lastcode" id="lastcode">Bereit zum Scannen</div>
         <div class="dupemsg" id="dupemsg"></div>
+        <ol class="codelist" id="codelist"></ol>
       </section>
 
       <!-- DONE -->
@@ -324,6 +339,7 @@
         <div class="verdict">Geschafft – <span id="done-n">5</span> Codes</div>
         <div class="timer locked" id="done-timer">0.<span class="ms">00</span></div>
         <div class="done-best">Bestzeit: <b id="done-best-v">–</b></div>
+        <ol class="codelist" id="done-codes"></ol>
         <button class="btn" id="restart">Neue Runde</button>
         <div class="again">oder einfach scannen für Neustart</div>
       </section>
@@ -333,7 +349,7 @@
   <footer>
     Scanner als Keyboard-Wedge mit <code>CR</code>/Enter-Suffix konfigurieren.<br>
     Test ohne Scanner: Code tippen und <code>Enter</code> drücken.
-    <div id="dbg">Build v5 · Empfangen: <span id="dbg-v">– (noch nichts)</span></div>
+    <div id="dbg">Build v6 · Empfangen: <span id="dbg-v">– (noch nichts)</span></div>
   </footer>
 
 <script>
@@ -344,6 +360,7 @@
   var target = 5;
   var allowDup = false;         // test mode: count repeated scans
   var scanned = new Set();
+  var codes = [];               // codes read this round, in order
   var startTime = 0;
   var elapsed = 0;
   var rafId = null;
@@ -357,7 +374,8 @@
     targetPlay: document.getElementById("target-play"),
     timer:   document.getElementById("timer"),
     slots:   document.getElementById("slots"),
-    lastcode:document.getElementById("lastcode"),
+    codelist:document.getElementById("codelist"),
+    doneCodes:document.getElementById("done-codes"),
     dupemsg: document.getElementById("dupemsg"),
     bestPlay:document.getElementById("best-play"),
     bestStart:document.getElementById("best-start"),
@@ -451,10 +469,11 @@
 
   function startGame(firstCode){
     scanned.clear();
+    codes = [];
+    el.codelist.innerHTML = "";
     el.targetPlay.textContent = target;
     el.cur.textContent = "0";
     el.timer.innerHTML = fmt(0);
-    el.lastcode.textContent = "Bereit zum Scannen";
     el.dupemsg.textContent = "";
     buildSlots();
     var b = getBest();
@@ -471,23 +490,33 @@
     rafId = requestAnimationFrame(tick);
   }
 
+  function addCodeRow(n, code){
+    var li = document.createElement("li");
+    var num = document.createElement("span");
+    num.className = "num"; num.textContent = n;
+    var c = document.createElement("span");
+    c.className = "code"; c.textContent = code;
+    li.appendChild(num); li.appendChild(c);
+    el.codelist.appendChild(li);
+  }
+
   function registerScan(code){
     code = (code||"").trim();
     if(!code) return;
 
     if(!allowDup && scanned.has(code)){
       flash("dupe"); beep(330,0.08); vibrate(30);
-      el.dupemsg.textContent = "Bereits gescannt – anderen Code nehmen";
-      el.lastcode.innerHTML = "Doppelt: <b>"+escapeHtml(code)+"</b>";
+      el.dupemsg.textContent = "„" + code + "\u201c bereits gescannt – anderen Code nehmen";
       return;
     }
 
     scanned.add(allowDup ? (code + "#" + scanned.size) : code);
+    codes.push(code);
     var n = scanned.size;
     flash("ok"); beep(880,0.08); vibrate(30);
     el.dupemsg.textContent = "";
     el.cur.textContent = n;
-    el.lastcode.innerHTML = "Code "+n+": <b>"+escapeHtml(code)+"</b>";
+    addCodeRow(n, code);
 
     var slot = el.slots.children[n-1];
     if(slot) slot.classList.add("filled");
@@ -507,6 +536,17 @@
     el.doneTimer.classList.remove("locked");
     void el.doneTimer.offsetWidth;
     el.doneTimer.classList.add("locked");
+
+    el.doneCodes.innerHTML = "";
+    for(var i=0;i<codes.length;i++){
+      var li = document.createElement("li");
+      var num = document.createElement("span");
+      num.className = "num"; num.textContent = (i+1);
+      var c = document.createElement("span");
+      c.className = "code"; c.textContent = codes[i];
+      li.appendChild(num); li.appendChild(c);
+      el.doneCodes.appendChild(li);
+    }
 
     if(allowDup){
       el.record.hidden = true;
@@ -529,16 +569,15 @@
   }
 
   /* ---------- scanner capture ----------
-     Two capture paths feed one pipeline, so a scan is caught no matter
-     where focus ends up after the previous scan, and regardless of the
-     wedge mode:
-       (1) document-level keydown — fires for key-event wedges even if
-           no field is focused, and even after focus shifts. Decodes
-           characters robustly if the wedge reports e.key as undefined.
-       (2) the hidden field's value — for text-injection wedges.
-     A hidden, always-focused field (inputmode=none → no soft keyboard)
-     acts as an anchor. Emits from both paths for the SAME physical scan
-     are de-duplicated. */
+     DENSO and other Android wedges deliver a scan as an injected text
+     block via their own IME (a single 'input' event), often followed by
+     an Enter key event. Older / key-event wedges deliver per-key. To
+     cover both, two paths feed one pipeline:
+       (1) document-level keydown (per-key / key-event wedges)
+       (2) the hidden field's value (IME text-injection wedges)
+     When finalizing we read whichever buffer holds the code, so an Enter
+     key event can't wipe an injected value before it's processed. Emits
+     from both paths for the SAME physical scan are de-duplicated. */
   var IDLE_MS = 120;
   var docBuf = "";
   var docIdle = null;
@@ -555,17 +594,24 @@
     return (window.performance && performance.now) ? performance.now() : Date.now();
   }
 
-  function emit(raw){
-    if(docIdle){ clearTimeout(docIdle); docIdle = null; }
-    if(sinkIdle){ clearTimeout(sinkIdle); sinkIdle = null; }
-    var code = (raw || "").replace(/[\r\n\t]+/g, "").trim();
+  /* read from whichever buffer has content, then clear both */
+  function readAndClear(){
+    var raw = docBuf || el.sink.value || "";
     docBuf = "";
     el.sink.value = "";
+    return raw;
+  }
+
+  function finalize(){
+    if(docIdle){ clearTimeout(docIdle); docIdle = null; }
+    if(sinkIdle){ clearTimeout(sinkIdle); sinkIdle = null; }
+    var code = readAndClear().replace(/[\r\n\t]+/g, "").trim();
     if(!code) return;
     var t = nowMs();
-    if(code === lastCode && (t - lastAt) < 250) return;  // 2nd path, same scan
+    if(code === lastCode && (t - lastAt) < 250){ focusSink(); return; }  // same scan, 2nd path
     lastCode = code; lastAt = t;
     handleCode(code);
+    setTimeout(focusSink, 0);   // re-establish the IME connection for the next scan
   }
 
   function handleCode(code){
@@ -575,12 +621,12 @@
     else if(STATE === "done")  startGame(code);   // scanning restarts
   }
 
-  /* path 1: document-level key events (never gated by focus) */
+  /* path 1: document-level key events */
   document.addEventListener("keydown", function(e){
     if(e.ctrlKey || e.metaKey || e.altKey) return;
     if(e.key === "Enter" || e.key === "Tab"){
       e.preventDefault();
-      emit(docBuf);
+      finalize();
       return;
     }
     var ch = (e.key && e.key.length === 1) ? e.key
@@ -588,14 +634,14 @@
     if(ch){
       docBuf += ch;
       if(docIdle) clearTimeout(docIdle);
-      docIdle = setTimeout(function(){ emit(docBuf); }, IDLE_MS);
+      docIdle = setTimeout(finalize, IDLE_MS);
     }
   });
 
-  /* path 2: hidden field value (text-injection wedges) */
+  /* path 2: hidden field value (IME text-injection wedges) */
   el.sink.addEventListener("input", function(){
     if(sinkIdle) clearTimeout(sinkIdle);
-    sinkIdle = setTimeout(function(){ emit(el.sink.value); }, IDLE_MS);
+    sinkIdle = setTimeout(finalize, IDLE_MS);
   });
 
   /* keep the anchor field focused */
