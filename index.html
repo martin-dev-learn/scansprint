@@ -103,6 +103,17 @@
   }
   .seg button .u{display:block;font-size:10px;letter-spacing:.12em;font-weight:600;opacity:.7;margin-top:2px}
 
+  .duptoggle{
+    width:100%;margin-top:10px;min-height:42px;
+    background:transparent;color:var(--ink-soft);
+    border:1px dashed var(--panel-edge);border-radius:10px;
+    font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+    cursor:pointer;transition:.12s;
+  }
+  .duptoggle b{color:var(--ink-soft)}
+  .duptoggle[aria-pressed="true"]{border-color:var(--laser);color:var(--ink)}
+  .duptoggle[aria-pressed="true"] b{color:var(--laser)}
+
   .prompt{
     margin-top:8px;
     border:2px dashed var(--panel-edge);border-radius:14px;
@@ -276,6 +287,9 @@
             <button data-n="5" aria-pressed="true">5<span class="u">Codes</span></button>
             <button data-n="10">10<span class="u">Codes</span></button>
           </div>
+          <button id="dup-toggle" class="duptoggle" aria-pressed="false">
+            Mehrfach-Scans erlauben (Test): <b>Aus</b>
+          </button>
         </div>
 
         <div class="prompt">
@@ -319,7 +333,7 @@
   <footer>
     Scanner als Keyboard-Wedge mit <code>CR</code>/Enter-Suffix konfigurieren.<br>
     Test ohne Scanner: Code tippen und <code>Enter</code> drücken.
-    <div id="dbg">Build v2 · Empfangen: <span id="dbg-v">– (noch nichts)</span></div>
+    <div id="dbg">Build v3 · Empfangen: <span id="dbg-v">– (noch nichts)</span></div>
   </footer>
 
 <script>
@@ -328,6 +342,7 @@
 
   var STATE = "start";          // start | play | done
   var target = 5;
+  var allowDup = false;         // test mode: count repeated scans
   var scanned = new Set();
   var startTime = 0;
   var elapsed = 0;
@@ -354,7 +369,8 @@
     restart: document.getElementById("restart"),
     flash:   document.getElementById("flash"),
     sink:    document.getElementById("sink"),
-    dbgV:    document.getElementById("dbg-v")
+    dbgV:    document.getElementById("dbg-v"),
+    dupToggle: document.getElementById("dup-toggle")
   };
 
   /* ---------- helpers ---------- */
@@ -459,14 +475,14 @@
     code = (code||"").trim();
     if(!code) return;
 
-    if(scanned.has(code)){
+    if(!allowDup && scanned.has(code)){
       flash("dupe"); beep(220,0.12); vibrate([40,30,40]);
-      el.dupemsg.textContent = "Bereits gescannt";
+      el.dupemsg.textContent = "Bereits gescannt – anderen Code nehmen";
       el.lastcode.innerHTML = "Doppelt: <b>"+escapeHtml(code)+"</b>";
       return;
     }
 
-    scanned.add(code);
+    scanned.add(allowDup ? (code + "#" + scanned.size) : code);
     var n = scanned.size;
     flash("ok"); beep(880,0.08); vibrate(30);
     el.dupemsg.textContent = "";
@@ -492,11 +508,16 @@
     void el.doneTimer.offsetWidth;
     el.doneTimer.classList.add("locked");
 
-    var prev = getBest();
-    var isRecord = (prev === null) || (elapsed < prev);
-    if(isRecord) setBest(elapsed);
-    el.record.hidden = !isRecord;
-    el.doneBestV.textContent = fmtPlain(isRecord ? elapsed : prev);
+    if(allowDup){
+      el.record.hidden = true;
+      el.doneBestV.textContent = "Testlauf";
+    } else {
+      var prev = getBest();
+      var isRecord = (prev === null) || (elapsed < prev);
+      if(isRecord) setBest(elapsed);
+      el.record.hidden = !isRecord;
+      el.doneBestV.textContent = fmtPlain(isRecord ? elapsed : prev);
+    }
 
     show("done");
   }
@@ -507,26 +528,43 @@
     });
   }
 
-  /* ---------- scanner input (hidden, always-focused capture) ----------
-     A hidden input (inputmode="none" → no on-screen keyboard) stays
-     focused at all times. It captures data from any wedge mode — key
-     events AND text injection — and avoids the "Unidentified" keyCode
-     issue, because we read the resulting text, not individual keys.
-     Finalize on Enter/Tab, with a short idle fallback for scanners
-     configured without a suffix. */
-  var idleTimer = null;
+  /* ---------- scanner capture ----------
+     Two capture paths feed one pipeline, so a scan is caught no matter
+     where focus ends up after the previous scan, and regardless of the
+     wedge mode:
+       (1) document-level keydown — fires for key-event wedges even if
+           no field is focused, and even after focus shifts. Decodes
+           characters robustly if the wedge reports e.key as undefined.
+       (2) the hidden field's value — for text-injection wedges.
+     A hidden, always-focused field (inputmode=none → no soft keyboard)
+     acts as an anchor. Emits from both paths for the SAME physical scan
+     are de-duplicated. */
   var IDLE_MS = 120;
+  var docBuf = "";
+  var docIdle = null;
+  var sinkIdle = null;
+  var lastCode = "";
+  var lastAt = 0;
 
   function focusSink(){
     try{ el.sink.focus({preventScroll:true}); }
     catch(e){ try{ el.sink.focus(); }catch(_){ } }
   }
 
-  function submitFromSink(){
-    if(idleTimer){ clearTimeout(idleTimer); idleTimer = null; }
-    var code = (el.sink.value || "").replace(/[\r\n\t]+/g, "").trim();
+  function nowMs(){
+    return (window.performance && performance.now) ? performance.now() : Date.now();
+  }
+
+  function emit(raw){
+    if(docIdle){ clearTimeout(docIdle); docIdle = null; }
+    if(sinkIdle){ clearTimeout(sinkIdle); sinkIdle = null; }
+    var code = (raw || "").replace(/[\r\n\t]+/g, "").trim();
+    docBuf = "";
     el.sink.value = "";
     if(!code) return;
+    var t = nowMs();
+    if(code === lastCode && (t - lastAt) < 250) return;  // 2nd path, same scan
+    lastCode = code; lastAt = t;
     handleCode(code);
   }
 
@@ -537,41 +575,12 @@
     else if(STATE === "done")  startGame(code);   // scanning restarts
   }
 
-  el.sink.addEventListener("keydown", function(e){
-    if(e.key === "Enter" || e.key === "Tab"){
-      e.preventDefault();
-      submitFromSink();
-    }
-  });
-  el.sink.addEventListener("input", function(){
-    if(idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(submitFromSink, IDLE_MS);
-  });
-
-  /* keep the sink focused so no scan is ever lost */
-  el.sink.addEventListener("blur", function(){ setTimeout(focusSink, 50); });
-  document.addEventListener("click", function(){ setTimeout(focusSink, 0); });
-  document.addEventListener("touchend", function(){ setTimeout(focusSink, 0); }, {passive:true});
-  document.addEventListener("visibilitychange", function(){ if(!document.hidden) focusSink(); });
-  window.addEventListener("pageshow", focusSink);
-
-  /* fallback: document-level capture, used only when the sink is NOT
-     focused (e.g. the very first scan right after page load). Decodes
-     characters robustly even if the wedge reports e.key as undefined. */
-  var docBuf = "";
-  var docIdle = null;
-  function docSubmit(){
-    if(docIdle){ clearTimeout(docIdle); docIdle = null; }
-    var code = docBuf.replace(/[\r\n\t]+/g, "").trim();
-    docBuf = "";
-    if(code) handleCode(code);
-  }
+  /* path 1: document-level key events (never gated by focus) */
   document.addEventListener("keydown", function(e){
-    if(document.activeElement === el.sink) return;   // sink path handles it
     if(e.ctrlKey || e.metaKey || e.altKey) return;
     if(e.key === "Enter" || e.key === "Tab"){
       e.preventDefault();
-      docSubmit();
+      emit(docBuf);
       return;
     }
     var ch = (e.key && e.key.length === 1) ? e.key
@@ -579,9 +588,22 @@
     if(ch){
       docBuf += ch;
       if(docIdle) clearTimeout(docIdle);
-      docIdle = setTimeout(docSubmit, IDLE_MS);
+      docIdle = setTimeout(function(){ emit(docBuf); }, IDLE_MS);
     }
   });
+
+  /* path 2: hidden field value (text-injection wedges) */
+  el.sink.addEventListener("input", function(){
+    if(sinkIdle) clearTimeout(sinkIdle);
+    sinkIdle = setTimeout(function(){ emit(el.sink.value); }, IDLE_MS);
+  });
+
+  /* keep the anchor field focused */
+  el.sink.addEventListener("blur", function(){ setTimeout(focusSink, 50); });
+  document.addEventListener("click", function(){ setTimeout(focusSink, 0); });
+  document.addEventListener("touchend", function(){ setTimeout(focusSink, 0); }, {passive:true});
+  document.addEventListener("visibilitychange", function(){ if(!document.hidden) focusSink(); });
+  window.addEventListener("pageshow", focusSink);
 
   /* ---------- start-screen controls ---------- */
   Array.prototype.forEach.call(el.seg.querySelectorAll("button"), function(b){
@@ -597,6 +619,14 @@
   });
 
   el.restart.addEventListener("click", function(){ toStart(); focusSink(); });
+
+  el.dupToggle.addEventListener("click", function(){
+    allowDup = !allowDup;
+    el.dupToggle.setAttribute("aria-pressed", allowDup ? "true" : "false");
+    el.dupToggle.innerHTML = "Mehrfach-Scans erlauben (Test): <b>" +
+                             (allowDup ? "An" : "Aus") + "</b>";
+    focusSink();
+  });
 
   /* ---------- init ---------- */
   toStart();
