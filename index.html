@@ -29,6 +29,7 @@
     display:flex;
     flex-direction:column;
     overflow:hidden;
+    padding-bottom:84px;   /* room for the fixed scan dock */
     -webkit-tap-highlight-color:transparent;
   }
 
@@ -253,16 +254,25 @@
 
   :focus-visible{outline:3px solid var(--hi);outline-offset:2px}
 
-  /* hidden capture field: focusable but off-screen, no soft keyboard */
-  #sink{
-    position:fixed;top:0;left:0;
-    width:1px;height:1px;
-    opacity:0;border:0;padding:0;margin:0;
-    font-size:16px;            /* avoids zoom-on-focus */
-    color:transparent;background:transparent;caret-color:transparent;
-    pointer-events:none;       /* taps pass through to the UI */
+  /* visible scan field: a real, browser-managed input — like the address
+     bar that works reliably on the device. Lives in a fixed bottom dock so
+     it survives screen switches and stays the focused element. */
+  .scandock{
+    position:fixed;left:0;right:0;bottom:0;z-index:50;
+    padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+    background:linear-gradient(0deg,var(--bg) 70%,transparent);
   }
-  #sink:focus{outline:none}
+  #sink{
+    display:block;width:100%;box-sizing:border-box;
+    min-height:56px;padding:14px 16px;
+    background:var(--panel);color:var(--ink);
+    border:2px solid var(--panel-edge);border-radius:14px;
+    font-family:var(--mono);font-size:16px;letter-spacing:.04em;
+    text-align:center;
+    transition:border-color .15s;
+  }
+  #sink::placeholder{color:var(--ink-soft);opacity:.9}
+  #sink:focus{outline:none;border-color:var(--hi)}
 
   #dbg{
     margin-top:8px;font-family:var(--mono);font-size:11px;
@@ -276,9 +286,6 @@
 </style>
 </head>
 <body>
-  <input id="sink" type="text" autocomplete="off"
-         autocorrect="off" autocapitalize="off" spellcheck="false"
-         aria-hidden="true" tabindex="-1">
   <div class="hazard"></div>
   <header>
     <div class="brand"><b>BARCOTEC</b> · AUTO-ID</div>
@@ -347,10 +354,16 @@
   </main>
 
   <footer>
-    Scanner als Keyboard-Wedge mit <code>CR</code>/Enter-Suffix konfigurieren.<br>
-    Test ohne Scanner: Code tippen und <code>Enter</code> drücken.
-    <div id="dbg">Build v6 · Empfangen: <span id="dbg-v">– (noch nichts)</span></div>
+    Scanner als Keyboard-Wedge / Tastatur-Emulation mit <code>CR</code>/Enter-Suffix.<br>
+    Test ohne Scanner: ins Feld unten tippen und <code>Enter</code> drücken.
+    <div id="dbg">Build v7 · Empfangen: <span id="dbg-v">– (noch nichts)</span></div>
   </footer>
+
+  <div class="scandock">
+    <input id="sink" type="text" autocomplete="off" autocorrect="off"
+           autocapitalize="off" spellcheck="false"
+           placeholder="▮▯▮  Code scannen …">
+  </div>
 
 <script>
 (function(){
@@ -608,10 +621,9 @@
     var code = readAndClear().replace(/[\r\n\t]+/g, "").trim();
     if(!code) return;
     var t = nowMs();
-    if(code === lastCode && (t - lastAt) < 250){ focusSink(); return; }  // same scan, 2nd path
+    if(code === lastCode && (t - lastAt) < 250) return;  // same scan, 2nd path
     lastCode = code; lastAt = t;
     handleCode(code);
-    setTimeout(focusSink, 0);   // re-establish the IME connection for the next scan
   }
 
   function handleCode(code){
@@ -644,21 +656,19 @@
     sinkIdle = setTimeout(finalize, IDLE_MS);
   });
 
-  /* keep the anchor field focused */
-  el.sink.addEventListener("blur", function(){ focusSink(); setTimeout(focusSink, 50); });
-  document.addEventListener("click", function(){ setTimeout(focusSink, 0); });
-  document.addEventListener("touchend", function(){ setTimeout(focusSink, 0); }, {passive:true});
+  /* gentle focus retention only — the visible field behaves like the
+     address bar and holds focus on its own. We do NOT force-refocus on a
+     timer, because that would interrupt the wedge's text injection mid-scan
+     and cause dropped codes. Refocus only on a real focus loss or a tap. */
+  var blurTimer = null;
+  el.sink.addEventListener("blur", function(){
+    if(blurTimer) clearTimeout(blurTimer);
+    blurTimer = setTimeout(focusSink, 150);
+  });
+  document.addEventListener("click", function(){ focusSink(); });
+  document.addEventListener("touchend", function(){ focusSink(); }, {passive:true});
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) focusSink(); });
   window.addEventListener("pageshow", focusSink);
-
-  /* safety net: keep the anchor focused at all times so capture recovers
-     automatically after any focus loss (e.g. after a duplicate's feedback)
-     without needing a screen tap. Buttons keep their focus when tapped. */
-  setInterval(function(){
-    var a = document.activeElement;
-    if(a && a.tagName === "BUTTON") return;
-    if(a !== el.sink) focusSink();
-  }, 350);
 
   /* ---------- start-screen controls ---------- */
   Array.prototype.forEach.call(el.seg.querySelectorAll("button"), function(b){
